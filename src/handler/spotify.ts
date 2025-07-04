@@ -1,4 +1,4 @@
-import playwright, { type Browser, type Page, type Request } from "playwright";
+import puppeteer, { type Browser, type Page, type HTTPResponse } from "puppeteer-core";
 import { Semaphore } from "../utils/semaphore";
 import { logWithTimestamp, contextLogWithUndefined } from "../utils/logger";
 import type { SpotifyToken, TokenProxy } from "../types/spotify";
@@ -11,8 +11,12 @@ export class SpotifyTokenHandler {
 	getAccessToken = async (): Promise<SpotifyToken> => {
 		return new Promise<SpotifyToken>((resolve, reject) => {
 			(async () => {
-				const browser: Browser | undefined = await playwright.chromium
-					.launch({ headless: true /*, executablePath: "..." */ })
+				const browser: Browser | undefined = await puppeteer
+					.launch({ 
+						headless: true,
+						executablePath: "/home/container/chrome-linux/chrome",
+						args: ['--no-sandbox', '--disable-setuid-sandbox']
+					})
 					.catch(contextLogWithUndefined.bind(null, "Failed to spawn browser"));
 				if (!browser) return reject(new Error("Failed to launch browser"));
 
@@ -36,27 +40,23 @@ export class SpotifyTokenHandler {
 					reject(new Error("Token fetch exceeded deadline"));
 				}, 15000);
 
-				page.on("requestfinished", async (event: Request) => {
-					if (!event.url().includes("/api/token")) return;
+				page.on("response", async (response: HTTPResponse) => {
+					if (!response.url().includes("/api/token")) return;
 					processedAccessTokenRequest = true;
-					let response: unknown;
-					try {
-						response = await event.response();
-					} catch {
-						response = null;
-					}
-					if (!response || !(response as Response).ok) {
-						page.removeAllListeners();
+					
+					if (!response.ok()) {
 						await browser.close();
 						clearTimeout(timeout);
 						return reject(new Error("Invalid response from Spotify."));
 					}
+					
 					let json: unknown;
 					try {
-						json = await (response as Response).json();
+						json = await response.json();
 					} catch {
 						json = null;
 					}
+					
 					if (
 						json &&
 						typeof json === "object" &&
@@ -65,7 +65,7 @@ export class SpotifyTokenHandler {
 					) {
 						delete (json as Record<string, unknown>)._notes;
 					}
-					page.removeAllListeners();
+					
 					await browser.close();
 					clearTimeout(timeout);
 					resolve(json as SpotifyToken);
