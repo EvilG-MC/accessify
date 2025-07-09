@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { SpotifyTokenHandler } from "./handler/spotify";
-import { logWithTimestamp } from "./utils/logger";
+import { logs } from "./utils/logger";
 
 const handler = new SpotifyTokenHandler();
 const app = new Hono();
@@ -8,7 +8,7 @@ const app = new Hono();
 app.get("/spotifytoken", handler.honoHandler);
 
 app.onError((err: unknown, c: Context) => {
-	logWithTimestamp("error", err);
+	logs("error", err);
 	return c.json({ error: "Internal Server Error" }, 500);
 });
 

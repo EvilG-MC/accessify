@@ -5,24 +5,29 @@ import playwright, {
 	type Request,
 } from "playwright";
 import { Semaphore } from "../utils/semaphore";
-import { logWithTimestamp, contextLogWithUndefined } from "../utils/logger";
+import { logs, contextLogWithUndefined } from "../utils/logger";
 import type { SpotifyToken, TokenProxy } from "../types/spotify";
 import type { Context } from "hono";
+import { getConnInfo } from "@hono/node-server/conninfo";
 
 export class SpotifyTokenHandler {
 	public semaphore = new Semaphore();
 	public cachedAccessToken: SpotifyToken | undefined = undefined;
 	private refreshTimeout: NodeJS.Timeout | undefined;
+	private _initialFetchStart: number;
+	private browser: Browser | undefined;
 
 	constructor() {
+		this._initialFetchStart = Date.now();
 		// fetch initial token on startup
 		this.getAccessToken()
 			.then((token) => {
 				this.cachedAccessToken = token;
-				logWithTimestamp("info", "Initial Spotify token fetched");
+				const elapsed = Date.now() - this._initialFetchStart;
+				logs("info", `Initial Spotify token fetched in ${elapsed}ms`);
 			})
 			.catch((err) => {
-				logWithTimestamp("warn", "Failed to fetch initial Spotify token", err);
+				logs("warn", "Failed to fetch initial Spotify token", err);
 			});
 	}
 
@@ -39,49 +44,102 @@ export class SpotifyTokenHandler {
 				try {
 					const newToken = await this.getAccessToken();
 					this.cachedAccessToken = newToken;
-					logWithTimestamp("info", "Spotify token auto-refreshed (timeout)");
+					logs("info", "Spotify token auto-refreshed (timeout)");
 				} finally {
 					release();
 				}
 			} catch (err) {
-				logWithTimestamp("warn", "Failed to auto-refresh Spotify token", err);
+				logs("warn", "Failed to auto-refresh Spotify token", err);
 			}
 			this.scheduleNextRefresh();
 		}, refreshIn);
 	}
 
+	private async ensureBrowser(): Promise<Browser> {
+		if (this.browser?.isConnected?.()) {
+			return this.browser;
+		}
+		const executablePath =
+			process.env.BROWSER_PATH && process.env.BROWSER_PATH.trim() !== ""
+				? process.env.BROWSER_PATH
+				: undefined;
+		this.browser = await playwright.chromium
+			.launch({
+				headless: true,
+				args: [
+					"--disable-gpu",
+					"--disable-dev-shm-usage",
+					"--disable-setuid-sandbox",
+					"--no-sandbox",
+					"--no-zygote",
+					"--single-process",
+					"--disable-background-timer-throttling",
+					"--disable-backgrounding-occluded-windows",
+					"--disable-renderer-backgrounding",
+				],
+				executablePath: executablePath,
+			})
+			.catch(contextLogWithUndefined.bind(null, "Failed to spawn browser"));
+		if (!this.browser) throw new Error("Failed to launch browser");
+		return this.browser;
+	}
+
 	public getAccessToken = async (): Promise<SpotifyToken> => {
 		return new Promise<SpotifyToken>((resolve, reject) => {
-			(async () => {
-				const executablePath =
-					process.env.BROWSER_PATH && process.env.BROWSER_PATH.trim() !== ""
-						? process.env.BROWSER_PATH
-						: undefined;
-				const launchOptions: LaunchOptions = { headless: true };
-				if (executablePath) launchOptions.executablePath = executablePath;
-
-				const browser: Browser | undefined = await playwright.chromium
-					.launch(launchOptions)
-					.catch(contextLogWithUndefined.bind(null, "Failed to spawn browser"));
-				if (!browser) return reject(new Error("Failed to launch browser"));
-
+			const run = async () => {
+				let browser: Browser;
+				try {
+					browser = await this.ensureBrowser();
+				} catch {
+					return reject(new Error("Failed to launch browser"));
+				}
 				const page: Page | undefined = await browser
 					.newPage()
 					.catch(contextLogWithUndefined.bind(null, "Failed to open new page"));
 				if (!page) {
 					await browser.close();
+					this.browser = undefined;
 					return reject(new Error("Failed to open new page"));
 				}
+
+				// Block unnecessary resources and specific URLs
+				await page.route("**/*", (route) => {
+					const url = route.request().url();
+					const type = route.request().resourceType();
+					// Block by resource type
+					if (
+						type === "image" ||
+						type === "stylesheet" ||
+						type === "font" ||
+						type === "media" ||
+						type === "websocket" ||
+						type === "other"
+					) {
+						route.abort();
+						return;
+					}
+					if (
+						url.includes("google-analytics") ||
+						url.includes("doubleclick.net") ||
+						url.includes("googletagmanager.com") ||
+						url.startsWith("https://open.spotifycdn.com/cdn/images/") ||
+						url.startsWith("https://encore.scdn.co/fonts/")
+					) {
+						route.abort();
+						return;
+					}
+					route.continue();
+				});
 
 				let processedAccessTokenRequest = false;
 				const timeout = setTimeout(() => {
 					if (!processedAccessTokenRequest) {
-						logWithTimestamp(
+						logs(
 							"warn",
 							"Deadline exceeded without processing access token request, did the endpoint change?",
 						);
 					}
-					browser.close();
+					page.close();
 					reject(new Error("Token fetch exceeded deadline"));
 				}, 15000);
 
@@ -96,7 +154,7 @@ export class SpotifyTokenHandler {
 					}
 					if (!response || !(response as Response).ok) {
 						page.removeAllListeners();
-						await browser.close();
+						await page.close();
 						clearTimeout(timeout);
 						return reject(new Error("Invalid response from Spotify."));
 					}
@@ -115,9 +173,8 @@ export class SpotifyTokenHandler {
 						delete (json as Record<string, unknown>)._notes;
 					}
 					page.removeAllListeners();
-					await browser.close();
+					await page.close();
 					clearTimeout(timeout);
-					// Set token dan jadwalkan refresh otomatis
 					this.cachedAccessToken = json as SpotifyToken;
 					this.scheduleNextRefresh();
 					resolve(json as SpotifyToken);
@@ -125,12 +182,13 @@ export class SpotifyTokenHandler {
 
 				page.goto("https://open.spotify.com/").catch((err: unknown) => {
 					if (!processedAccessTokenRequest) {
-						browser.close();
+						page.close();
 						clearTimeout(timeout);
 						reject(new Error(`Failed to goto URL: ${err}`));
 					}
 				});
-			})();
+			};
+			run();
 		});
 	};
 
@@ -138,23 +196,13 @@ export class SpotifyTokenHandler {
 		const isForce = ["1", "yes", "true"].includes(
 			(c.req.query("force") || "").toLowerCase(),
 		);
-		// i have no idea how to make this work
-		let ip = c.req.header("x-forwarded-for");
-		if (!ip) {
-			const raw = c.req.raw;
-			if (typeof raw === "object" && raw && "socket" in raw) {
-				const socket = (raw as { socket?: { remoteAddress?: string } }).socket;
-				if (socket && typeof socket.remoteAddress === "string") {
-					ip = socket.remoteAddress;
-				}
-			}
-		}
-		ip = ip || "unknown";
+		const connInfo = getConnInfo(c);
+		const ip = connInfo?.remote?.address || "unknown";
 		const userAgent = c.req.header("user-agent") ?? "no ua";
 		const start = Date.now();
 		const result = await this.handleTokenRequest(c, isForce);
 		const elapsed = Date.now() - start;
-		logWithTimestamp(
+		logs(
 			"info",
 			`Handled Spotify Token request from IP: ${ip}, UA: ${userAgent} (force: ${isForce}) in ${elapsed}ms`,
 		);
@@ -198,7 +246,7 @@ export class SpotifyTokenHandler {
 				return c.json(refreshed, 200);
 			}
 		} catch (e) {
-			logWithTimestamp("error", e);
+			logs("error", e);
 			return c.json({}, 500);
 		} finally {
 			release();

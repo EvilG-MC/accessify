@@ -1,4 +1,4 @@
-export function logWithTimestamp(
+export function logs(
 	level: "log" | "error" | "warn" | "info",
 	...args: unknown[]
 ) {
@@ -32,6 +32,6 @@ export function contextLogWithUndefined(
 	context: string,
 	err: unknown,
 ): undefined {
-	logWithTimestamp("error", context, err);
+	logs("error", context, err);
 	return undefined;
 }
