@@ -1,6 +1,5 @@
 import playwright, {
 	type Browser,
-	type LaunchOptions,
 	type Page,
 	type Request,
 } from "playwright";
@@ -77,7 +76,7 @@ export class SpotifyTokenHandler {
 					"--disable-backgrounding-occluded-windows",
 					"--disable-renderer-backgrounding",
 				],
-				executablePath: executablePath,
+				executablePath,
 			})
 			.catch(contextLogWithUndefined.bind(null, "Failed to spawn browser"));
 		if (!this.browser) throw new Error("Failed to launch browser");
