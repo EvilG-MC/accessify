@@ -1,54 +1,46 @@
-import playwright, { type Browser, type Page, type Request } from "playwright";
-import { logs, contextLogWithUndefined } from "../utils/logger";
+import playwright from "playwright";
+import type { Browser, LaunchOptions, Page, Request } from "playwright";
+import { contextLogWithUndefined } from "../utils/logger";
 import type { SpotifyToken } from "../types/spotify";
 
 export class SpotifyBrowser {
-	private browser: Browser | undefined;
-
-	async ensureBrowser(): Promise<Browser> {
-		if (this.browser?.isConnected?.()) {
-			return this.browser;
-		}
-		const executablePath =
-			process.env.BROWSER_PATH && process.env.BROWSER_PATH.trim() !== ""
-				? process.env.BROWSER_PATH
-				: undefined;
-		this.browser = await playwright.chromium
-			.launch({
-				headless: true,
-				args: [
-					"--disable-gpu",
-					"--disable-dev-shm-usage",
-					"--disable-setuid-sandbox",
-					"--no-sandbox",
-					"--no-zygote",
-					"--single-process",
-					"--disable-background-timer-throttling",
-					"--disable-backgrounding-occluded-windows",
-					"--disable-renderer-backgrounding",
-				],
-				executablePath,
-			})
-			.catch(contextLogWithUndefined.bind(null, "Failed to spawn browser"));
-		if (!this.browser) throw new Error("Failed to launch browser");
-		return this.browser;
-	}
-
-	async fetchToken(): Promise<SpotifyToken> {
+	public fetchToken = (): Promise<SpotifyToken> => {
 		return new Promise<SpotifyToken>((resolve, reject) => {
 			const run = async () => {
-				let browser: Browser;
+				const executablePath =
+					process.env.BROWSER_PATH && process.env.BROWSER_PATH.trim() !== ""
+						? process.env.BROWSER_PATH
+						: undefined;
+				const launchOptions: LaunchOptions = {
+					headless: true,
+					args: [
+						"--disable-gpu",
+						"--disable-dev-shm-usage",
+						"--disable-setuid-sandbox",
+						"--no-sandbox",
+						"--no-zygote",
+						"--single-process",
+						"--disable-background-timer-throttling",
+						"--disable-backgrounding-occluded-windows",
+						"--disable-renderer-backgrounding",
+					],
+				};
+				if (executablePath) launchOptions.executablePath = executablePath;
+
+				let browser: Browser | undefined;
 				try {
-					browser = await this.ensureBrowser();
-				} catch {
+					browser = await playwright.chromium.launch(launchOptions);
+				} catch (err) {
+					contextLogWithUndefined("Failed to spawn browser", err);
 					return reject(new Error("Failed to launch browser"));
 				}
-				const page: Page | undefined = await browser
-					.newPage()
-					.catch(contextLogWithUndefined.bind(null, "Failed to open new page"));
-				if (!page) {
+
+				let page: Page | undefined;
+				try {
+					page = await browser.newPage();
+				} catch (err) {
+					contextLogWithUndefined("Failed to open new page", err);
 					await browser.close();
-					this.browser = undefined;
 					return reject(new Error("Failed to open new page"));
 				}
 
@@ -82,12 +74,12 @@ export class SpotifyBrowser {
 				let processedAccessTokenRequest = false;
 				const timeout = setTimeout(() => {
 					if (!processedAccessTokenRequest) {
-						logs(
-							"warn",
+						contextLogWithUndefined(
 							"Deadline exceeded without processing access token request, did the endpoint change?",
+							undefined,
 						);
 					}
-					page.close();
+					browser.close();
 					reject(new Error("Token fetch exceeded deadline"));
 				}, 15000);
 
@@ -102,7 +94,7 @@ export class SpotifyBrowser {
 					}
 					if (!response || !(response as Response).ok) {
 						page.removeAllListeners();
-						await page.close();
+						browser.close();
 						clearTimeout(timeout);
 						return reject(new Error("Invalid response from Spotify."));
 					}
@@ -121,14 +113,14 @@ export class SpotifyBrowser {
 						delete (json as Record<string, unknown>)._notes;
 					}
 					page.removeAllListeners();
-					await page.close();
+					await browser.close();
 					clearTimeout(timeout);
 					resolve(json as SpotifyToken);
 				});
 
-				page.goto("https://open.spotify.com/").catch((err: unknown) => {
+				page.goto("https://open.spotify.com/").catch(async (err: unknown) => {
 					if (!processedAccessTokenRequest) {
-						page.close();
+						browser.close();
 						clearTimeout(timeout);
 						reject(new Error(`Failed to goto URL: ${err}`));
 					}
@@ -136,5 +128,5 @@ export class SpotifyBrowser {
 			};
 			run();
 		});
-	}
+	};
 }
