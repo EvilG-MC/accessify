@@ -21,7 +21,7 @@ export class SpotifyBrowser {
 				process.env.BROWSER_PATH && process.env.BROWSER_PATH.trim() !== ""
 					? process.env.BROWSER_PATH
 					: undefined;
-                    
+
 			const launchOptions: LaunchOptions = {
 				headless: true,
 				args: [
@@ -81,7 +81,7 @@ export class SpotifyBrowser {
 							"Cookies set for request",
 							cookieObjects.map((c) => ({
 								name: c.name,
-								value: c.value.slice(0, 20) + "...",
+								value: `${c.value.slice(0, 20)}...`,
 							})),
 						);
 					}
