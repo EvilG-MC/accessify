@@ -1,6 +1,6 @@
 import playwright from "playwright";
 import type { Browser, LaunchOptions, Page, Request } from "playwright";
-import { contextLogWithUndefined } from "../utils/logger";
+import { logs_undefined } from "../utils/logger";
 import type { SpotifyToken } from "../types/spotify";
 
 export class SpotifyBrowser {
@@ -31,7 +31,7 @@ export class SpotifyBrowser {
 				try {
 					browser = await playwright.chromium.launch(launchOptions);
 				} catch (err) {
-					contextLogWithUndefined("Failed to spawn browser", err);
+					logs_undefined("Failed to spawn browser", err);
 					return reject(new Error("Failed to launch browser"));
 				}
 
@@ -39,7 +39,7 @@ export class SpotifyBrowser {
 				try {
 					page = await browser.newPage();
 				} catch (err) {
-					contextLogWithUndefined("Failed to open new page", err);
+					logs_undefined("Failed to open new page", err);
 					await browser.close();
 					return reject(new Error("Failed to open new page"));
 				}
@@ -74,7 +74,7 @@ export class SpotifyBrowser {
 				let processedAccessTokenRequest = false;
 				const timeout = setTimeout(() => {
 					if (!processedAccessTokenRequest) {
-						contextLogWithUndefined(
+						logs_undefined(
 							"Deadline exceeded without processing access token request, did the endpoint change?",
 							undefined,
 						);

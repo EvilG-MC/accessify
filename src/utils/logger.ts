@@ -28,7 +28,7 @@ export function logs(
 	);
 }
 
-export function contextLogWithUndefined(
+export function logs_undefined(
 	context: string,
 	err: unknown,
 ): undefined {
