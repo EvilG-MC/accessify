@@ -17,6 +17,17 @@ app.onError((err: unknown, c: Context) => {
 
 const PORT = Number(process.env.PORT) || 3000;
 
+// Cleanup function
+async function cleanup() {
+	logs("info", "Shutting down server...");
+	await handler.cleanup();
+	process.exit(0);
+}
+
+// Handle graceful shutdown
+process.on("SIGINT", cleanup);
+process.on("SIGTERM", cleanup);
+
 if (require.main === module) {
 	serve({ fetch: app.fetch, port: PORT });
 	logs(

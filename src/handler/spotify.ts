@@ -14,7 +14,7 @@ export class SpotifyTokenHandler {
 
 	constructor() {
 		const initFetch = Date.now();
-		// fetch initial token on startup
+		// fetch initial token on startup (without cookies)
 		this.getAccessToken()
 			.then((token) => {
 				this.accessToken = token;
@@ -24,6 +24,15 @@ export class SpotifyTokenHandler {
 			.catch((err) => {
 				logs("warn", "Failed to fetch initial Spotify token", err);
 			});
+	}
+
+	// Cleanup method
+	public async cleanup(): Promise<void> {
+		if (this.refreshTimeout) {
+			clearTimeout(this.refreshTimeout);
+			this.refreshTimeout = undefined;
+		}
+		await this.browser.close();
 	}
 
 	private setRefresh() {
@@ -50,11 +59,13 @@ export class SpotifyTokenHandler {
 		}, refreshIn);
 	}
 
-	private getAccessToken = async (): Promise<SpotifyToken> => {
+	private getAccessToken = async (
+		cookies?: Array<{ name: string; value: string }>,
+	): Promise<SpotifyToken> => {
 		return new Promise<SpotifyToken>((resolve, reject) => {
 			const run = async () => {
 				try {
-					const token = await this.browser.fetchToken();
+					const token = await this.browser.fetchToken(cookies);
 					this.accessToken = token;
 					this.setRefresh();
 					resolve(token);
@@ -74,15 +85,35 @@ export class SpotifyTokenHandler {
 		const ip = connInfo?.remote?.address || "unknown";
 		const userAgent = c.req.header("user-agent") ?? "no ua";
 		const start = Date.now();
+
+		const cookies: Array<{ name: string; value: string }> = [];
+		const cookieHeader = c.req.header("cookie");
+		if (cookieHeader) {
+			const cookiePairs = cookieHeader.split(";");
+			for (const pair of cookiePairs) {
+				const [name, ...rest] = pair.trim().split("=");
+				if (name && rest.length > 0) {
+					cookies.push({ name, value: rest.join("=") });
+				}
+			}
+			logs(
+				"info",
+				`Request with cookies: ${cookies.map((c) => `${c.name}=${c.value}`).join(", ")}`,
+			);
+		} else {
+			logs("info", "Request without cookies");
+		}
+
 		const result = await handleRequest(
 			c,
 			isForce,
-			this.getAccessToken,
+			(cookies) => this.getAccessToken(cookies),
 			() => this.accessToken,
 			(token) => {
 				this.accessToken = token;
 			},
 			this.semaphore,
+			cookies,
 		);
 		const elapsed = Date.now() - start;
 		logs(
