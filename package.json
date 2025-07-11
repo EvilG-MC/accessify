@@ -4,13 +4,17 @@
   "version": "1.0.0",
   "main": "index.js",
   "private": true,
+  "author": "iaMJ",
+  "license": "MIT",
+  "lint-staged": {
+    "*.ts": ["pnpm format"]
+  },
   "scripts": {
     "start": "tsup && node dist/server.js",
     "start:run": "node dist/server.js",
-    "format": "biome format --write ./src"
+    "format": "biome format --write ./src",
+    "prepare": "husky"
   },
-  "author": "iaMJ",
-  "license": "ISC",
   "dependencies": {
     "@hono/node-server": "^1.15.0",
     "dotenv": "^17.1.0",
@@ -21,6 +25,8 @@
     "@biomejs/biome": "^2.1.1",
     "@types/bun": "latest",
     "@types/node": "^24.0.12",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.2",
     "tsup": "^8.5.0",
     "typescript": "^5.8.3"
   },
