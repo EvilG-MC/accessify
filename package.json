@@ -2,7 +2,7 @@
   "name": "accessify",
   "description": "A simple REST API to generate and cache anonymous Spotify access tokens using Playwright",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "dist/index.js",
   "private": true,
   "author": "iaMJ",
   "license": "MIT",
