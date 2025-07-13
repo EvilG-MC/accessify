@@ -31,6 +31,7 @@ export class SpotifyBrowser {
 						"--disable-setuid-sandbox",
 						"--no-sandbox",
 						"--no-zygote",
+						"--disable-extensions",
 						"--disable-background-timer-throttling",
 						"--disable-backgrounding-occluded-windows",
 						"--disable-renderer-backgrounding",
@@ -158,27 +159,32 @@ export class SpotifyBrowser {
 					await page.route("**/*", (route) => {
 						const url = route.request().url();
 						const type = route.request().resourceType();
-						if (
-							type === "image" ||
-							type === "stylesheet" ||
-							type === "font" ||
-							type === "media" ||
-							type === "websocket" ||
-							type === "other"
-						) {
+
+						const blockedTypes = new Set([
+							"image",
+							"stylesheet",
+							"font",
+							"media",
+							"websocket",
+							"other",
+						]);
+
+						const blockedPatterns = [
+							"google-analytics",
+							"doubleclick.net",
+							"googletagmanager.com",
+							"https://open.spotifycdn.com/cdn/images/",
+							"https://encore.scdn.co/fonts/",
+						];
+
+						const isBlockedUrl = (u: string) =>
+							blockedPatterns.some((pat) => u.includes(pat));
+
+						if (blockedTypes.has(type) || isBlockedUrl(url)) {
 							route.abort();
 							return;
 						}
-						if (
-							url.includes("google-analytics") ||
-							url.includes("doubleclick.net") ||
-							url.includes("googletagmanager.com") ||
-							url.startsWith("https://open.spotifycdn.com/cdn/images/") ||
-							url.startsWith("https://encore.scdn.co/fonts/")
-						) {
-							route.abort();
-							return;
-						}
+
 						route.continue();
 					});
 
