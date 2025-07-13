@@ -31,7 +31,6 @@ export class SpotifyBrowser {
 						"--disable-setuid-sandbox",
 						"--no-sandbox",
 						"--no-zygote",
-						"--single-process",
 						"--disable-background-timer-throttling",
 						"--disable-backgrounding-occluded-windows",
 						"--disable-renderer-backgrounding",
