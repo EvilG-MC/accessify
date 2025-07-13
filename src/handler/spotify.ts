@@ -49,6 +49,7 @@ export class SpotifyTokenHandler {
 		if (!token) return;
 		const now = Date.now();
 		const expiresIn = token.accessTokenExpirationTimestampMs - now;
+		c;
 		const refreshIn = Math.max(expiresIn + 100, 0); // refresh this trash thing 100ms after expired
 		this.refreshTimeout = setTimeout(async () => {
 			try {
@@ -91,7 +92,12 @@ export class SpotifyTokenHandler {
 			(c.req.query("force") || "").toLowerCase(),
 		);
 		const connInfo = getConnInfo(c);
-		const ip = connInfo?.remote?.address || "unknown";
+		let ip = connInfo?.remote?.address || "unknown";
+		if (ip === "::1") {
+			ip = "127.0.0.1";
+		} else if (ip.startsWith("::ffff:")) {
+			ip = ip.replace("::ffff:", "");
+		}
 		const userAgent = c.req.header("user-agent") ?? "no ua";
 		const start = Date.now();
 
