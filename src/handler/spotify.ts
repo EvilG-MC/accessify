@@ -49,7 +49,6 @@ export class SpotifyTokenHandler {
 		if (!token) return;
 		const now = Date.now();
 		const expiresIn = token.accessTokenExpirationTimestampMs - now;
-		c;
 		const refreshIn = Math.max(expiresIn + 100, 0); // refresh this trash thing 100ms after expired
 		this.refreshTimeout = setTimeout(async () => {
 			try {
