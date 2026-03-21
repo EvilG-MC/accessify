@@ -1,5 +1,5 @@
-const { execSync } = require('child_process');
-const fs = require('fs');
+const { execSync } = require('node:child_process');
+const fs = require('node:fs');
 
 const LIBS_DIR = '/home/container/libs';
 const CHROME_PATH = '/home/container/chrome-linux64/chrome';
@@ -23,7 +23,7 @@ try {
       `LD_LIBRARY_PATH=${LIBS_DIR} ldd ${CHROME_PATH} 2>/dev/null | grep "not found"`,
       { encoding: 'utf8' }
     ).trim();
-  } catch (e) {
+  } catch {
     // grep returns exit code 1 when nothing is found — means no missing libs
     missingLibs = '';
   }
@@ -115,7 +115,7 @@ try {
   }
 
   // Cleanup tmp
-  try { execSync(`rm -rf ${tmpDir}`); } catch (e) {}
+  try { execSync(`rm -rf ${tmpDir}`); } catch {}
 
   // Re-check missing libs
   console.log('\n=== Missing libraries AFTER install ===');
@@ -125,7 +125,7 @@ try {
       { encoding: 'utf8' }
     );
     console.log(stillMissing);
-  } catch (e) {
+  } catch {
     console.log('✓ None — Chrome should work');
   }
 

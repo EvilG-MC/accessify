@@ -16,7 +16,7 @@ app.onError((err: unknown, c: Context) => {
 	return c.json({ error: "Internal Server Error" }, 500);
 });
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.SERVER_PORT) || 3000;
 
 // Cleanup function
 async function cleanup() {
