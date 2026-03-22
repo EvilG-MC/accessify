@@ -6,6 +6,7 @@ import type {
 	ClientTokenResponse,
 } from "../types/spotify";
 import { logs } from "../utils/logger";
+import { Semaphore } from "../utils/semaphore";
 
 const BLOCKED_TYPES = new Set([
 	"image",
@@ -31,6 +32,7 @@ export class SpotifyBrowser {
 	private browser: Browser | undefined;
 	private context: BrowserContext | undefined;
 	private persistentPage: Page | undefined;
+	private browserSemaphore = new Semaphore();
 
 	private async ensureBrowser(): Promise<{
 		browser: Browser;
@@ -119,127 +121,139 @@ export class SpotifyBrowser {
 	public async fetchToken(
 		cookies?: Array<{ name: string; value: string }>,
 	): Promise<SpotifyToken> {
-		const { context } = await this.ensureBrowser();
-		const { page, shouldClosePage } = await this.getPage(context);
-
+		const release = await this.browserSemaphore.acquire();
 		try {
-			await context.clearCookies();
+			const { context } = await this.ensureBrowser();
+			const { page, shouldClosePage } = await this.getPage(context);
 
-			if (cookies && cookies.length > 0) {
-				const cookieObjects = cookies.map((cookie) => ({
-					name: cookie.name,
-					value: cookie.value,
-					domain: ".spotify.com",
-					path: "/",
-					httpOnly: false,
-					secure: true,
-					sameSite: "Lax" as const,
-				}));
-				await context.addCookies(cookieObjects);
-				logs(
-					"info",
-					"Cookies set for request",
-					cookieObjects.map((c) => ({
-						name: c.name,
-						value: `${c.value.slice(0, 20)}...`,
-					})),
-				);
-			}
-
-			await this.setupBlockingRoutes(page);
-
-			const [response] = await Promise.all([
-				page.waitForResponse(
-					(res) => res.url().includes("/api/token") && res.status() === 200,
-					{ timeout: 15000 },
-				),
-				page.goto("https://open.spotify.com/", {
-					waitUntil: "commit",
-					timeout: 15000,
-				}),
-			]);
-
-			if (!response.ok()) {
-				throw new Error(`Invalid response from Spotify: ${response.status()}`);
-			}
-
-			let json: Record<string, unknown>;
 			try {
-				json = await response.json();
-			} catch {
-				throw new Error("Failed to parse response JSON");
-			}
+				await context.clearCookies();
 
-			delete json._notes;
-			return json as SpotifyToken;
-		} finally {
-			if (shouldClosePage) {
-				await page.close();
-			} else {
-				await page.unrouteAll({ behavior: "ignoreErrors" });
+				if (cookies && cookies.length > 0) {
+					const cookieObjects = cookies.map((cookie) => ({
+						name: cookie.name,
+						value: cookie.value,
+						domain: ".spotify.com",
+						path: "/",
+						httpOnly: false,
+						secure: true,
+						sameSite: "Lax" as const,
+					}));
+					await context.addCookies(cookieObjects);
+					logs(
+						"info",
+						"Cookies set for request",
+						cookieObjects.map((c) => ({
+							name: c.name,
+							value: `${c.value.slice(0, 20)}...`,
+						})),
+					);
+				}
+
+				await this.setupBlockingRoutes(page);
+
+				const [response] = await Promise.all([
+					page.waitForResponse(
+						(res) => res.url().includes("/api/token") && res.status() === 200,
+						{ timeout: 15000 },
+					),
+					page.goto("https://open.spotify.com/", {
+						waitUntil: "commit",
+						timeout: 15000,
+					}),
+				]);
+
+				if (!response.ok()) {
+					throw new Error(
+						`Invalid response from Spotify: ${response.status()}`,
+					);
+				}
+
+				let json: Record<string, unknown>;
+				try {
+					json = await response.json();
+				} catch {
+					throw new Error("Failed to parse response JSON");
+				}
+
+				delete json._notes;
+				return json as SpotifyToken;
+			} finally {
+				if (shouldClosePage) {
+					await page.close();
+				} else {
+					await page.unrouteAll({ behavior: "ignoreErrors" });
+				}
 			}
+		} finally {
+			release();
 		}
 	}
 
 	public async fetchClientToken(): Promise<SpotifyClientToken> {
-		const { context } = await this.ensureBrowser();
-		const { page, shouldClosePage } = await this.getPage(context);
-
+		const release = await this.browserSemaphore.acquire();
 		try {
-			await context.clearCookies();
-			await this.setupBlockingRoutes(page);
+			const { context } = await this.ensureBrowser();
+			const { page, shouldClosePage } = await this.getPage(context);
 
-			const [response] = await Promise.all([
-				page.waitForResponse(
-					(res) =>
-						res.url().includes("clienttoken.spotify.com/v1/clienttoken") &&
-						res.status() === 200,
-					{ timeout: 15000 },
-				),
-				page.goto("https://open.spotify.com/", {
-					waitUntil: "commit",
-					timeout: 15000,
-				}),
-			]);
-
-			if (!response.ok()) {
-				throw new Error(
-					`Invalid response from clienttoken endpoint: ${response.status()}`,
-				);
-			}
-
-			let json: Record<string, unknown>;
 			try {
-				json = await response.json();
-			} catch {
-				throw new Error("Failed to parse response JSON");
+				await context.clearCookies();
+				await this.setupBlockingRoutes(page);
+
+				const [response] = await Promise.all([
+					page.waitForResponse(
+						(res) =>
+							res.url().includes("clienttoken.spotify.com/v1/clienttoken") &&
+							res.status() === 200,
+						{ timeout: 15000 },
+					),
+					page.goto("https://open.spotify.com/", {
+						waitUntil: "commit",
+						timeout: 15000,
+					}),
+				]);
+
+				if (!response.ok()) {
+					throw new Error(
+						`Invalid response from clienttoken endpoint: ${response.status()}`,
+					);
+				}
+
+				let json: Record<string, unknown>;
+				try {
+					json = await response.json();
+				} catch {
+					throw new Error("Failed to parse response JSON");
+				}
+
+				if (!json || typeof json !== "object" || !("granted_token" in json)) {
+					throw new Error(
+						"Unexpected client token response: missing granted_token",
+					);
+				}
+
+				const raw = json as ClientTokenResponse;
+				const granted = raw.granted_token;
+				const now = Date.now();
+				const expiresAfter = Number(granted.expires_after_seconds ?? 0);
+				const refreshAfter = Number(granted.refresh_after_seconds ?? 0);
+
+				return {
+					raw,
+					accessToken: granted.token,
+					accessTokenExpirationTimestampMs: now + expiresAfter * 1000,
+					refreshAfterTimestampMs:
+						refreshAfter > 0 ? now + refreshAfter * 1000 : undefined,
+				};
+			} finally {
+				if (shouldClosePage) {
+					await page.close();
+				} else {
+					await page.unrouteAll({ behavior: "ignoreErrors" });
+				}
 			}
-
-			if (!json || typeof json !== "object" || !("granted_token" in json)) {
-				throw new Error(
-					"Unexpected client token response: missing granted_token",
-				);
-			}
-
-			const raw = json as ClientTokenResponse;
-			const granted = raw.granted_token;
-			const now = Date.now();
-			const expiresAfter = Number(granted.expires_after_seconds ?? 0);
-			const refreshAfter = Number(granted.refresh_after_seconds ?? 0);
-
-			return {
-				raw,
-				accessToken: granted.token,
-				accessTokenExpirationTimestampMs: now + expiresAfter * 1000,
-				refreshAfterTimestampMs:
-					refreshAfter > 0 ? now + refreshAfter * 1000 : undefined,
-			};
 		} finally {
-			if (shouldClosePage) {
-				await page.close();
-			} else {
-				await page.unrouteAll({ behavior: "ignoreErrors" });
-			}
+			release();
 		}
 	}
 
