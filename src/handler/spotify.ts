@@ -1,9 +1,9 @@
-import { SpotifyBrowser } from "./browser";
-import { Semaphore } from "../utils/semaphore";
-import { logs } from "../utils/logger";
-import type { SpotifyToken, SpotifyClientToken } from "../types/spotify";
-import type { Context } from "hono";
 import { getConnInfo } from "@hono/node-server/conninfo";
+import type { Context } from "hono";
+import type { SpotifyClientToken, SpotifyToken } from "../types/spotify";
+import { logs } from "../utils/logger";
+import { Semaphore } from "../utils/semaphore";
+import { SpotifyBrowser } from "./browser";
 import { handleRequest } from "./request";
 
 export class SpotifyTokenHandler {
@@ -31,7 +31,7 @@ export class SpotifyTokenHandler {
 					err,
 				);
 				if (attempt < 3) {
-					setTimeout(() => tryInit(attempt + 1), 2000 * attempt); // retry with backoff
+					setTimeout(() => tryInit(attempt + 1), 2000 * attempt);
 				}
 			}
 		};
@@ -57,13 +57,11 @@ export class SpotifyTokenHandler {
 		tryInitClient();
 	}
 
-	// Cleanup method
 	public async cleanup(): Promise<void> {
 		if (this.refreshTimeout) {
 			clearTimeout(this.refreshTimeout);
 			this.refreshTimeout = undefined;
 		}
-		// ❌ Falta esto:
 		if (this.clientRefreshTimeout) {
 			clearTimeout(this.clientRefreshTimeout);
 			this.clientRefreshTimeout = undefined;
@@ -77,7 +75,13 @@ export class SpotifyTokenHandler {
 		if (!token) return;
 		const now = Date.now();
 		const expiresIn = token.accessTokenExpirationTimestampMs - now;
-		const refreshIn = Math.max(expiresIn + 100, 0); // refresh this trash thing 100ms after expired
+		let refreshIn = Math.max(expiresIn + 100, 0);
+
+		if (Number.isNaN(refreshIn)) {
+			logs("warn", "setRefresh: refreshIn is NaN, defaulting to 1 hour");
+			refreshIn = 3600 * 1000;
+		}
+
 		this.refreshTimeout = setTimeout(async () => {
 			try {
 				const release = await this.accessSemaphore.acquire();
@@ -109,6 +113,12 @@ export class SpotifyTokenHandler {
 				0,
 			);
 		}
+
+		if (Number.isNaN(refreshIn)) {
+			logs("warn", "setClientRefresh: refreshIn is NaN, defaulting to 1 hour");
+			refreshIn = 3600 * 1000;
+		}
+
 		this.clientRefreshTimeout = setTimeout(async () => {
 			try {
 				const release = await this.clientSemaphore.acquire();

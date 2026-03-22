@@ -57,10 +57,10 @@ export async function handleRequest<T extends SpotifyToken>(
 				token.data ? (serializer ? serializer(token.data) : token.data) : {},
 				200,
 			);
-		} else {
-			const refreshed = await token.refresh();
-			return c.json(serializer ? serializer(refreshed) : refreshed, 200);
 		}
+
+		const refreshed = await token.refresh();
+		return c.json(serializer ? serializer(refreshed) : refreshed, 200);
 	} catch (e) {
 		logs("error", e);
 		return c.json({ error: "Failed to fetch token" }, 500);

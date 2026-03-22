@@ -1,9 +1,9 @@
 import "dotenv/config";
 
-import { Hono, type Context } from "hono";
+import { serve } from "@hono/node-server";
+import { type Context, Hono } from "hono";
 import { SpotifyTokenHandler } from "./handler/spotify";
 import { logs } from "./utils/logger";
-import { serve } from "@hono/node-server";
 
 const handler = new SpotifyTokenHandler();
 const app = new Hono();

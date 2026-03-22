@@ -6,25 +6,18 @@ const BLUE = "\x1b[34m";
 const GREEN = "\x1b[32m";
 const GRAY = "\x1b[90m";
 
+const LEVELS: Record<string, string> = {
+	error: `${RED}${BOLD}[ERROR]${RESET}`,
+	warn: `${YELLOW}${BOLD}[WARN]${RESET}`,
+	info: `${BLUE}${BOLD}[INFO]${RESET}`,
+	log: `${GREEN}${BOLD}[LOG]${RESET}`,
+};
+
 export function logs(
 	level: "log" | "error" | "warn" | "info",
 	...args: unknown[]
 ) {
 	const timestamp = `[${new Date().toUTCString()}]`;
-	let coloredLevel: string;
-
-	if (level === "error") {
-		coloredLevel = `${RED}${BOLD}[ERROR]${RESET}`;
-	} else if (level === "warn") {
-		coloredLevel = `${YELLOW}${BOLD}[WARN]${RESET}`;
-	} else if (level === "info") {
-		coloredLevel = `${BLUE}${BOLD}[INFO]${RESET}`;
-	} else {
-		coloredLevel = `${GREEN}${BOLD}[LOG]${RESET}`;
-	}
-	// Print with colorized level and timestamp
-	(console[level] as (...args: unknown[]) => void)(
-		`${coloredLevel} ${GRAY}${timestamp}${RESET}`,
-		...args,
-	);
+	const coloredLevel = LEVELS[level];
+	console[level](`${coloredLevel} ${GRAY}${timestamp}${RESET}`, ...args);
 }
