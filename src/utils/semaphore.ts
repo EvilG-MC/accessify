@@ -14,7 +14,12 @@ export class Semaphore {
 			const timer = timeoutMs
 				? setTimeout(() => {
 						const idx = this._waiters.indexOf(waiter);
-						if (idx !== -1) this._waiters.splice(idx, 1);
+						if (idx !== -1) {
+							this._waiters.splice(idx, 1);
+							if (this._waiters.length === 0 && this._locked) {
+								this._locked = false;
+							}
+						}
 						reject(new Error("Semaphore acquire timed out"));
 					}, timeoutMs)
 				: undefined;

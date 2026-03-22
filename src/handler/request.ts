@@ -14,7 +14,6 @@ export async function handleRequest<T extends SpotifyToken>(
 	serializer?: (token: T) => unknown,
 ): Promise<Response> {
 	const token: TokenProxy<T> = {
-		type: "cachedAccessToken",
 		fetch: () => getToken(cookies),
 		get data() {
 			return getCachedToken();
@@ -38,7 +37,7 @@ export async function handleRequest<T extends SpotifyToken>(
 			return c.json(serializer ? serializer(freshToken) : freshToken, 200);
 		} catch (e) {
 			logs("error", e);
-			return c.json({}, 500);
+			return c.json({ error: "Failed to fetch token" }, 500);
 		} finally {
 			release();
 		}

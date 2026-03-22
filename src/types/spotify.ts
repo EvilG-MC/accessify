@@ -7,7 +7,6 @@ export interface SpotifyToken {
 }
 
 export interface TokenProxy<T extends SpotifyToken> {
-	type: string;
 	fetch: (cookies?: Array<{ name: string; value: string }>) => Promise<T>;
 	readonly data: T | undefined;
 	valid(): boolean;

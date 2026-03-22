@@ -215,11 +215,7 @@ export class SpotifyBrowser {
 				throw new Error("Failed to parse response JSON");
 			}
 
-			if (
-				!json ||
-				typeof json !== "object" ||
-				!("granted_token" in (json as Record<string, unknown>))
-			) {
+			if (!json || typeof json !== "object" || !("granted_token" in json)) {
 				throw new Error(
 					"Unexpected client token response: missing granted_token",
 				);

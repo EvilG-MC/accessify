@@ -141,21 +141,15 @@ export class SpotifyTokenHandler {
 	};
 
 	private getClientToken = async (): Promise<SpotifyClientToken> => {
-		return new Promise<SpotifyClientToken>((resolve, reject) => {
-			const run = async () => {
-				try {
-					const token =
-						(await this.browser.fetchClientToken()) as SpotifyClientToken;
-					this.clientToken = token;
-					this.setClientRefresh();
-					resolve(token);
-				} catch (err) {
-					logs("error", "Error in getClientToken", err);
-					reject(err);
-				}
-			};
-			run();
-		});
+		try {
+			const token = await this.browser.fetchClientToken();
+			this.clientToken = token;
+			this.setClientRefresh();
+			return token;
+		} catch (err) {
+			logs("error", "Error in getClientToken", err);
+			throw err;
+		}
 	};
 
 	private normalizeIp(raw: string | undefined): string {
