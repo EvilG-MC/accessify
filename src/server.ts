@@ -29,10 +29,5 @@ async function cleanup() {
 process.on("SIGINT", cleanup);
 process.on("SIGTERM", cleanup);
 
-if (require.main === module) {
-	serve({ fetch: app.fetch, port: PORT });
-	logs(
-		"info",
-		`Spotify Token API (Hono) listening on http://localhost:${PORT}`,
-	);
-}
+serve({ fetch: app.fetch, port: PORT });
+logs("info", `Spotify Token API (Hono) listening on http://localhost:${PORT}`);
