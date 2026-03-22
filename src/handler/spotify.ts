@@ -186,7 +186,7 @@ export class SpotifyTokenHandler {
 			}
 			logs(
 				"info",
-				`Request with cookies: ${cookies.map((c) => `${c.name}=${c.value}`).join(", ")}`,
+				`Request with cookies: ${cookies.map((c) => `${c.name}=${c.value.slice(0, 20)}...`).join(", ")}`,
 			);
 		} else {
 			logs("info", "Request without cookies");
