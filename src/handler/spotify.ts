@@ -7,7 +7,9 @@ import { getConnInfo } from "@hono/node-server/conninfo";
 import { handleRequest } from "./request";
 
 export class SpotifyTokenHandler {
-	private semaphore = new Semaphore();
+	private accessSemaphore = new Semaphore();
+	private clientSemaphore = new Semaphore();
+
 	private accessToken: SpotifyToken | undefined;
 	private clientToken: SpotifyClientToken | undefined;
 	private refreshTimeout: NodeJS.Timeout | undefined;
@@ -61,6 +63,11 @@ export class SpotifyTokenHandler {
 			clearTimeout(this.refreshTimeout);
 			this.refreshTimeout = undefined;
 		}
+		// ❌ Falta esto:
+		if (this.clientRefreshTimeout) {
+			clearTimeout(this.clientRefreshTimeout);
+			this.clientRefreshTimeout = undefined;
+		}
 		await this.browser.close();
 	}
 
@@ -73,7 +80,7 @@ export class SpotifyTokenHandler {
 		const refreshIn = Math.max(expiresIn + 100, 0); // refresh this trash thing 100ms after expired
 		this.refreshTimeout = setTimeout(async () => {
 			try {
-				const release = await this.semaphore.acquire();
+				const release = await this.accessSemaphore.acquire();
 				try {
 					const newToken = await this.getAccessToken();
 					this.accessToken = newToken;
@@ -94,12 +101,8 @@ export class SpotifyTokenHandler {
 		if (!token) return;
 		const now = Date.now();
 		let refreshIn: number;
-		const clientTokenRecord = token as Record<string, unknown>;
-		if (typeof clientTokenRecord.refreshAfterTimestampMs === "number") {
-			refreshIn = Math.max(
-				(clientTokenRecord.refreshAfterTimestampMs as number) - now + 100,
-				0,
-			);
+		if (token.refreshAfterTimestampMs !== undefined) {
+			refreshIn = Math.max(token.refreshAfterTimestampMs - now + 100, 0);
 		} else {
 			refreshIn = Math.max(
 				token.accessTokenExpirationTimestampMs - now + 100,
@@ -108,7 +111,7 @@ export class SpotifyTokenHandler {
 		}
 		this.clientRefreshTimeout = setTimeout(async () => {
 			try {
-				const release = await this.semaphore.acquire();
+				const release = await this.clientSemaphore.acquire();
 				try {
 					const newToken = await this.getClientToken();
 					this.clientToken = newToken;
@@ -126,20 +129,15 @@ export class SpotifyTokenHandler {
 	private getAccessToken = async (
 		cookies?: Array<{ name: string; value: string }>,
 	): Promise<SpotifyToken> => {
-		return new Promise<SpotifyToken>((resolve, reject) => {
-			const run = async () => {
-				try {
-					const token = await this.browser.fetchToken(cookies);
-					this.accessToken = token;
-					this.setRefresh();
-					resolve(token);
-				} catch (err) {
-					logs("error", "Error in getAccessToken", err);
-					reject(err);
-				}
-			};
-			run();
-		});
+		try {
+			const token = await this.browser.fetchToken(cookies);
+			this.accessToken = token;
+			this.setRefresh();
+			return token;
+		} catch (err) {
+			logs("error", "Error in getAccessToken", err);
+			throw err;
+		}
 	};
 
 	private getClientToken = async (): Promise<SpotifyClientToken> => {
@@ -160,17 +158,20 @@ export class SpotifyTokenHandler {
 		});
 	};
 
+	private normalizeIp(raw: string | undefined): string {
+		if (!raw) return "unknown";
+		if (raw === "::1") return "127.0.0.1";
+		if (raw.startsWith("::ffff:")) return raw.replace("::ffff:", "");
+		return raw;
+	}
+
 	public honoHandler = async (c: Context): Promise<Response> => {
 		const isForce = ["1", "yes", "true"].includes(
 			(c.req.query("force") || "").toLowerCase(),
 		);
 		const connInfo = getConnInfo(c);
 		let ip = connInfo?.remote?.address || "unknown";
-		if (ip === "::1") {
-			ip = "127.0.0.1";
-		} else if (ip.startsWith("::ffff:")) {
-			ip = ip.replace("::ffff:", "");
-		}
+		ip = this.normalizeIp(ip);
 		const userAgent = c.req.header("user-agent") ?? "no ua";
 		const start = Date.now();
 
@@ -200,7 +201,7 @@ export class SpotifyTokenHandler {
 			(token) => {
 				this.accessToken = token;
 			},
-			this.semaphore,
+			this.accessSemaphore,
 			cookies,
 		);
 		const elapsed = Date.now() - start;
@@ -217,11 +218,7 @@ export class SpotifyTokenHandler {
 		);
 		const connInfo = getConnInfo(c);
 		let ip = connInfo?.remote?.address || "unknown";
-		if (ip === "::1") {
-			ip = "127.0.0.1";
-		} else if (ip.startsWith("::ffff:")) {
-			ip = ip.replace("::ffff:", "");
-		}
+		ip = this.normalizeIp(ip);
 		const userAgent = c.req.header("user-agent") ?? "no ua";
 		const start = Date.now();
 
@@ -233,7 +230,7 @@ export class SpotifyTokenHandler {
 			(token) => {
 				this.clientToken = token;
 			},
-			this.semaphore,
+			this.clientSemaphore,
 			undefined,
 			(token) => token.raw,
 		);

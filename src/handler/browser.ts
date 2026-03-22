@@ -163,10 +163,9 @@ export class SpotifyBrowser {
 				throw new Error(`Invalid response from Spotify: ${response.status()}`);
 			}
 
-			const responseBody = await response.text();
 			let json: Record<string, unknown>;
 			try {
-				json = JSON.parse(responseBody);
+				json = await response.json();
 			} catch {
 				throw new Error("Failed to parse response JSON");
 			}
@@ -209,12 +208,11 @@ export class SpotifyBrowser {
 				);
 			}
 
-			const responseBody = await response.text();
-			let json: unknown;
+			let json: Record<string, unknown>;
 			try {
-				json = JSON.parse(responseBody);
+				json = await response.json();
 			} catch {
-				throw new Error("Failed to parse client token response JSON");
+				throw new Error("Failed to parse response JSON");
 			}
 
 			if (

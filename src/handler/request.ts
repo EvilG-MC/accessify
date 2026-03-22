@@ -64,7 +64,7 @@ export async function handleRequest<T extends SpotifyToken>(
 		}
 	} catch (e) {
 		logs("error", e);
-		return c.json({}, 500);
+		return c.json({ error: "Failed to fetch token" }, 500);
 	} finally {
 		release();
 	}
