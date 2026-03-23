@@ -104,9 +104,8 @@ export class SpotifyBrowser {
 				this.persistentPage = undefined;
 			} else {
 				try {
-					if (this.context.pages().length >= 0) {
-						return { browser: this.browser, context: this.context };
-					}
+					this.context.pages();
+					return { browser: this.browser, context: this.context };
 				} catch {
 					logs("warn", "Context validation failed, relaunching...");
 					this.browser = undefined;
