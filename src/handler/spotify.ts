@@ -18,6 +18,7 @@ export class SpotifyTokenHandler {
 
 	constructor() {
 		const initFetch = Date.now();
+
 		const tryInit = async (attempt = 1) => {
 			try {
 				const token = await this.getAccessToken();
@@ -35,7 +36,6 @@ export class SpotifyTokenHandler {
 				}
 			}
 		};
-		tryInit();
 
 		const tryInitClient = async (attempt = 1) => {
 			try {
@@ -54,7 +54,8 @@ export class SpotifyTokenHandler {
 				}
 			}
 		};
-		tryInitClient();
+
+		tryInit().then(() => tryInitClient());
 	}
 
 	public async cleanup(): Promise<void> {

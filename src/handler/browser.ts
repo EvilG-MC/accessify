@@ -6,6 +6,7 @@ import type {
 	SpotifyToken,
 } from "../types/spotify";
 import { logs } from "../utils/logger";
+import { Semaphore } from "../utils/semaphore";
 
 const BLOCKED_TYPES = new Set([
 	"image",
@@ -34,6 +35,7 @@ export class SpotifyBrowser {
 	private initPromise:
 		| Promise<{ browser: Browser; context: BrowserContext }>
 		| undefined;
+	private browserSemaphore = new Semaphore();
 
 	private async launchBrowser(): Promise<{
 		browser: Browser;
@@ -55,6 +57,14 @@ export class SpotifyBrowser {
 					"--disable-blink-features=AutomationControlled",
 					"--disable-backgrounding-occluded-windows",
 					"--disable-renderer-backgrounding",
+					"--disable-sync",
+					"--disable-breakpad",
+					"--disable-client-side-phishing-detection",
+					"--disable-popup-blocking",
+					"--disable-prompt-on-repost",
+					"--disable-web-resources",
+					"--no-first-run",
+					"--no-default-browser-check",
 					"--window-size=1920,1080",
 				],
 			};
@@ -91,14 +101,17 @@ export class SpotifyBrowser {
 				logs("warn", "Browser disconnected, relaunching...");
 				this.browser = undefined;
 				this.context = undefined;
+				this.persistentPage = undefined;
 			} else {
 				try {
-					this.context.pages();
-					return { browser: this.browser, context: this.context };
+					if (this.context.pages().length >= 0) {
+						return { browser: this.browser, context: this.context };
+					}
 				} catch {
-					logs("warn", "Context closed, relaunching...");
+					logs("warn", "Context validation failed, relaunching...");
 					this.browser = undefined;
 					this.context = undefined;
+					this.persistentPage = undefined;
 				}
 			}
 		}
@@ -115,149 +128,218 @@ export class SpotifyBrowser {
 		shouldClosePage: boolean;
 	}> {
 		if (this.persistentPage && !this.persistentPage.isClosed()) {
-			await this.persistentPage.unrouteAll({ behavior: "ignoreErrors" });
-			return { page: this.persistentPage, shouldClosePage: false };
+			try {
+				await this.persistentPage.unrouteAll({ behavior: "ignoreErrors" });
+				return { page: this.persistentPage, shouldClosePage: false };
+			} catch (err) {
+				logs(
+					"warn",
+					"Persistent page failed health check, creating new page",
+					err,
+				);
+				this.persistentPage = undefined;
+			}
 		}
 		const page = await context.newPage();
 		return { page, shouldClosePage: true };
 	}
 
 	private async setupBlockingRoutes(page: Page): Promise<void> {
-		await page.route("**/*", (route) => {
-			const url = route.request().url();
-			const type = route.request().resourceType();
-			if (BLOCKED_TYPES.has(type) || isBlockedUrl(url)) {
-				route.abort();
-				return;
-			}
-			route.continue();
-		});
+		try {
+			await page.route("**/*", (route) => {
+				try {
+					const url = route.request().url();
+					const type = route.request().resourceType();
+					if (BLOCKED_TYPES.has(type) || isBlockedUrl(url)) {
+						route.abort("blockedbyclient").catch(() => {});
+						return;
+					}
+					route.continue().catch(() => {});
+				} catch {
+					try {
+						route.continue();
+					} catch {
+						// Page likely crashed, ignore
+					}
+				}
+			});
+		} catch (err) {
+			logs("warn", "Failed to setup blocking routes", err);
+			throw err;
+		}
 	}
 
 	public async fetchToken(
 		cookies?: Array<{ name: string; value: string }>,
 	): Promise<SpotifyToken> {
-		const { context } = await this.ensureBrowser();
-		const { page, shouldClosePage } = await this.getPage(context);
-
+		// ✅ Serializa fetchToken y fetchClientToken — nunca dos páginas simultáneas
+		const release = await this.browserSemaphore.acquire();
 		try {
-			await context.clearCookies();
+			const { context } = await this.ensureBrowser();
+			const { page, shouldClosePage } = await this.getPage(context);
 
-			if (cookies && cookies.length > 0) {
-				const cookieObjects = cookies.map((cookie) => ({
-					name: cookie.name,
-					value: cookie.value,
-					domain: ".spotify.com",
-					path: "/",
-					httpOnly: false,
-					secure: true,
-					sameSite: "Lax" as const,
-				}));
-				await context.addCookies(cookieObjects);
-				logs(
-					"info",
-					"Cookies set for request",
-					cookieObjects.map((c) => ({
-						name: c.name,
-						value: `${c.value.slice(0, 20)}...`,
-					})),
-				);
-			}
-
-			await this.setupBlockingRoutes(page);
-
-			const [response] = await Promise.all([
-				page.waitForResponse(
-					(res) => res.url().includes("/api/token") && res.status() === 200,
-					{ timeout: 15000 },
-				),
-				page.goto("https://open.spotify.com/", {
-					waitUntil: "commit",
-					timeout: 15000,
-				}),
-			]);
-
-			if (!response.ok()) {
-				throw new Error(`Invalid response from Spotify: ${response.status()}`);
-			}
-
-			let json: Record<string, unknown>;
 			try {
-				json = await response.json();
-			} catch {
-				throw new Error("Failed to parse response JSON");
-			}
+				await context.clearCookies();
 
-			delete json._notes;
-			return json as SpotifyToken;
-		} finally {
-			if (shouldClosePage) {
-				await page.close();
-			} else {
-				await page.unrouteAll({ behavior: "ignoreErrors" });
+				if (cookies && cookies.length > 0) {
+					const cookieObjects = cookies.map((cookie) => ({
+						name: cookie.name,
+						value: cookie.value,
+						domain: ".spotify.com",
+						path: "/",
+						httpOnly: false,
+						secure: true,
+						sameSite: "Lax" as const,
+					}));
+					await context.addCookies(cookieObjects);
+					logs(
+						"info",
+						"Cookies set for request",
+						cookieObjects.map((c) => ({
+							name: c.name,
+							value: `${c.value.slice(0, 20)}...`,
+						})),
+					);
+				}
+
+				await this.setupBlockingRoutes(page);
+
+				const [response] = await Promise.all([
+					page.waitForResponse(
+						(res) => res.url().includes("/api/token") && res.status() === 200,
+						{ timeout: 15000 },
+					),
+					page.goto("https://open.spotify.com/", {
+						waitUntil: "commit",
+						timeout: 15000,
+					}),
+				]);
+
+				if (!response.ok()) {
+					throw new Error(
+						`Invalid response from Spotify: ${response.status()}`,
+					);
+				}
+
+				let json: Record<string, unknown>;
+				try {
+					json = await response.json();
+				} catch {
+					throw new Error("Failed to parse response JSON");
+				}
+
+				delete json._notes;
+				return json as SpotifyToken;
+			} catch (err) {
+				if (err instanceof Error && err.message.includes("Target crashed")) {
+					logs(
+						"warn",
+						"Page target crashed during token fetch, will recreate",
+						err,
+					);
+					if (!shouldClosePage) {
+						this.persistentPage = undefined;
+					}
+				}
+				throw err;
+			} finally {
+				if (shouldClosePage) {
+					try {
+						await page.close();
+					} catch {
+						// Page already closed/crashed, ignore
+					}
+				} else {
+					try {
+						if (!page.isClosed()) {
+							await page.unrouteAll({ behavior: "ignoreErrors" });
+						} else {
+							this.persistentPage = undefined;
+						}
+					} catch (err) {
+						logs("warn", "Failed to cleanup persistent page routes", err);
+						this.persistentPage = undefined;
+					}
+				}
 			}
+		} finally {
+			release();
 		}
 	}
 
 	public async fetchClientToken(): Promise<SpotifyClientToken> {
-		const { context } = await this.ensureBrowser();
-
-		const page = await context.newPage();
-
+		// ✅ Serializa junto con fetchToken — nunca dos páginas simultáneas
+		const release = await this.browserSemaphore.acquire();
 		try {
-			await context.clearCookies();
-			await this.setupBlockingRoutes(page);
+			const { context } = await this.ensureBrowser();
+			const page = await context.newPage();
 
-			const [response] = await Promise.all([
-				page.waitForResponse(
-					(res) =>
-						res.url().includes("clienttoken.spotify.com/v1/clienttoken") &&
-						res.status() === 200,
-					{ timeout: 15000 },
-				),
-				page.goto("https://open.spotify.com/", {
-					waitUntil: "commit",
-					timeout: 15000,
-				}),
-			]);
-
-			if (!response.ok()) {
-				throw new Error(
-					`Invalid response from clienttoken endpoint: ${response.status()}`,
-				);
-			}
-
-			let json: Record<string, unknown>;
 			try {
-				json = await response.json();
-			} catch {
-				throw new Error("Failed to parse response JSON");
+				await context.clearCookies();
+				await this.setupBlockingRoutes(page);
+
+				const [response] = await Promise.all([
+					page.waitForResponse(
+						(res) =>
+							res.url().includes("clienttoken.spotify.com/v1/clienttoken") &&
+							res.status() === 200,
+						{ timeout: 15000 },
+					),
+					page.goto("https://open.spotify.com/", {
+						waitUntil: "commit",
+						timeout: 15000,
+					}),
+				]);
+
+				if (!response.ok()) {
+					throw new Error(
+						`Invalid response from clienttoken endpoint: ${response.status()}`,
+					);
+				}
+
+				let json: Record<string, unknown>;
+				try {
+					json = await response.json();
+				} catch {
+					throw new Error("Failed to parse response JSON");
+				}
+
+				if (!json || typeof json !== "object" || !("granted_token" in json)) {
+					throw new Error(
+						"Unexpected client token response: missing granted_token",
+					);
+				}
+
+				const raw = json as ClientTokenResponse;
+				const granted = raw.granted_token;
+				const now = Date.now();
+				const expiresAfter = Number(granted.expires_after_seconds ?? 0);
+				const refreshAfter = Number(granted.refresh_after_seconds ?? 0);
+
+				return {
+					raw,
+					accessToken: granted.token,
+					accessTokenExpirationTimestampMs:
+						now + (Number.isNaN(expiresAfter) ? 3600 : expiresAfter) * 1000,
+					refreshAfterTimestampMs:
+						refreshAfter > 0 && !Number.isNaN(refreshAfter)
+							? now + refreshAfter * 1000
+							: undefined,
+				};
+			} catch (err) {
+				if (err instanceof Error && err.message.includes("Target crashed")) {
+					logs("warn", "Page target crashed during client token fetch", err);
+				}
+				throw err;
+			} finally {
+				try {
+					await page.close();
+				} catch {
+					// Page already closed/crashed, ignore
+				}
 			}
-
-			if (!json || typeof json !== "object" || !("granted_token" in json)) {
-				throw new Error(
-					"Unexpected client token response: missing granted_token",
-				);
-			}
-
-			const raw = json as ClientTokenResponse;
-			const granted = raw.granted_token;
-			const now = Date.now();
-			const expiresAfter = Number(granted.expires_after_seconds ?? 0);
-			const refreshAfter = Number(granted.refresh_after_seconds ?? 0);
-
-			return {
-				raw,
-				accessToken: granted.token,
-				accessTokenExpirationTimestampMs:
-					now + (Number.isNaN(expiresAfter) ? 3600 : expiresAfter) * 1000,
-				refreshAfterTimestampMs:
-					refreshAfter > 0 && !Number.isNaN(refreshAfter)
-						? now + refreshAfter * 1000
-						: undefined,
-			};
 		} finally {
-			await page.close();
+			release();
 		}
 	}
 
