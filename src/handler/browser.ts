@@ -81,6 +81,10 @@ export class SpotifyBrowser {
 			logs("info", "Browser and context created");
 			return { browser: this.browser, context: this.context };
 		} catch (err) {
+			if (this.browser) {
+				await this.browser.close().catch(() => {});
+			}
+
 			this.browser = undefined;
 			this.context = undefined;
 			logs("error", "Failed to launch browser or context", err);
