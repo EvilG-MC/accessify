@@ -171,8 +171,7 @@ export class SpotifyBrowser {
 	public async fetchToken(
 		cookies?: Array<{ name: string; value: string }>,
 	): Promise<SpotifyToken> {
-		// ✅ Serializa fetchToken y fetchClientToken — nunca dos páginas simultáneas
-		const release = await this.browserSemaphore.acquire();
+		const release = await this.browserSemaphore.acquire(30000);
 		try {
 			const { context } = await this.ensureBrowser();
 			const { page, shouldClosePage } = await this.getPage(context);
@@ -267,8 +266,7 @@ export class SpotifyBrowser {
 	}
 
 	public async fetchClientToken(): Promise<SpotifyClientToken> {
-		// ✅ Serializa junto con fetchToken — nunca dos páginas simultáneas
-		const release = await this.browserSemaphore.acquire();
+		const release = await this.browserSemaphore.acquire(30000);
 		try {
 			const { context } = await this.ensureBrowser();
 			const page = await context.newPage();

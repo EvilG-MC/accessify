@@ -10,6 +10,13 @@ const app = new Hono();
 
 app.get("/spotifytoken", handler.honoHandler);
 app.get("/clienttoken", handler.clientTokenHonoHandler);
+app.get("/health", (c) => {
+	return c.json({
+		status: "ok",
+		accessToken: handler.hasAccessToken(),
+		clientToken: handler.hasClientToken(),
+	});
+});
 
 app.onError((err: unknown, c: Context) => {
 	logs("error", err);

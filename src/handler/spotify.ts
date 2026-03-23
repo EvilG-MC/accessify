@@ -58,6 +58,22 @@ export class SpotifyTokenHandler {
 		tryInit().then(() => tryInitClient());
 	}
 
+	public hasAccessToken(): boolean {
+		return (
+			this.accessToken !== undefined &&
+			this.accessToken.accessTokenExpirationTimestampMs > Date.now()
+		);
+	}
+
+	public hasClientToken(): boolean {
+		if (!this.clientToken) return false;
+		const now = Date.now();
+		const effectiveExpiry =
+			this.clientToken.refreshAfterTimestampMs ??
+			this.clientToken.accessTokenExpirationTimestampMs;
+		return effectiveExpiry > now;
+	}
+
 	public async cleanup(): Promise<void> {
 		if (this.refreshTimeout) {
 			clearTimeout(this.refreshTimeout);
@@ -84,18 +100,31 @@ export class SpotifyTokenHandler {
 		}
 
 		this.refreshTimeout = setTimeout(async () => {
-			try {
-				const release = await this.accessSemaphore.acquire();
+			let success = false;
+			for (let attempt = 1; attempt <= 3; attempt++) {
 				try {
-					const newToken = await this.getAccessToken();
-					this.accessToken = newToken;
-					logs("info", "Spotify token auto-refreshed (timeout)");
-				} finally {
-					release();
+					const release = await this.accessSemaphore.acquire();
+					try {
+						const newToken = await this.getAccessToken();
+						this.accessToken = newToken;
+						logs("info", "Spotify token auto-refreshed (timeout)");
+						success = true;
+					} finally {
+						release();
+					}
+					break;
+				} catch (err) {
+					logs(
+						"warn",
+						`Failed to auto-refresh Spotify token (attempt ${attempt})`,
+						err,
+					);
+					if (attempt < 3)
+						await new Promise((r) => setTimeout(r, 2000 * attempt));
 				}
-			} catch (err) {
-				logs("warn", "Failed to auto-refresh Spotify token", err);
 			}
+			if (!success)
+				logs("error", "All auto-refresh attempts failed, token may be stale");
 			this.setRefresh();
 		}, refreshIn);
 	}
@@ -121,18 +150,34 @@ export class SpotifyTokenHandler {
 		}
 
 		this.clientRefreshTimeout = setTimeout(async () => {
-			try {
-				const release = await this.clientSemaphore.acquire();
+			let success = false;
+			for (let attempt = 1; attempt <= 3; attempt++) {
 				try {
-					const newToken = await this.getClientToken();
-					this.clientToken = newToken;
-					logs("info", "Spotify client token auto-refreshed (timeout)");
-				} finally {
-					release();
+					const release = await this.clientSemaphore.acquire();
+					try {
+						const newToken = await this.getClientToken();
+						this.clientToken = newToken;
+						logs("info", "Spotify client token auto-refreshed (timeout)");
+						success = true;
+					} finally {
+						release();
+					}
+					break;
+				} catch (err) {
+					logs(
+						"warn",
+						`Failed to auto-refresh Spotify client token (attempt ${attempt})`,
+						err,
+					);
+					if (attempt < 3)
+						await new Promise((r) => setTimeout(r, 2000 * attempt));
 				}
-			} catch (err) {
-				logs("warn", "Failed to auto-refresh Spotify client token", err);
 			}
+			if (!success)
+				logs(
+					"error",
+					"All client token auto-refresh attempts failed, token may be stale",
+				);
 			this.setClientRefresh();
 		}, refreshIn);
 	}
@@ -170,6 +215,22 @@ export class SpotifyTokenHandler {
 		return raw;
 	}
 
+	private parseCookies(
+		cookieHeader: string | undefined,
+	): Array<{ name: string; value: string }> {
+		if (!cookieHeader) return [];
+		return cookieHeader
+			.split(";")
+			.map((pair) => {
+				const [name, ...rest] = pair.trim().split("=");
+				return { name, value: rest.join("=") };
+			})
+			.filter(
+				(c): c is { name: string; value: string } =>
+					c.name !== undefined && c.name.length > 0,
+			);
+	}
+
 	public honoHandler = async (c: Context): Promise<Response> => {
 		const isForce = ["1", "yes", "true"].includes(
 			(c.req.query("force") || "").toLowerCase(),
@@ -180,16 +241,8 @@ export class SpotifyTokenHandler {
 		const userAgent = c.req.header("user-agent") ?? "no ua";
 		const start = Date.now();
 
-		const cookies: Array<{ name: string; value: string }> = [];
-		const cookieHeader = c.req.header("cookie");
-		if (cookieHeader) {
-			const cookiePairs = cookieHeader.split(";");
-			for (const pair of cookiePairs) {
-				const [name, ...rest] = pair.trim().split("=");
-				if (name && rest.length > 0) {
-					cookies.push({ name, value: rest.join("=") });
-				}
-			}
+		const cookies = this.parseCookies(c.req.header("cookie"));
+		if (cookies.length > 0) {
 			logs(
 				"info",
 				`Request with cookies: ${cookies.map((c) => `${c.name}=${c.value.slice(0, 20)}...`).join(", ")}`,
