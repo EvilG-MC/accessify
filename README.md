@@ -27,24 +27,51 @@ npm install
 
 ## Chromium Installation
 
-### For most environments (not Pterodactyl):
+### For most environments
 Install Playwright's bundled Chromium automatically:
 
 ```bash
 npx playwright install chromium
 ```
 
-### For Pterodactyl (or restricted environments):
-1. **Download Chromium**
-   - Download a compatible Chromium build from [https://commondatastorage.googleapis.com/chromium-browser-snapshots/index.html](https://commondatastorage.googleapis.com/chromium-browser-snapshots/index.html) (choose your OS/arch, e.g. Linux x64).
-2. **Extract the archive** and upload the `chrome`/`chromium` binary (and its folder) to your Pterodactyl server, e.g. `/home/container/chrome-linux/chrome`.
-3. **Set the path in `.env`**:
-   ```properties
-   CHROME_PATH=/home/container/chrome-linux/chrome
-   ```
-4. **Restart your server/container**.
+### For Pterodactyl / Pelican / Wings-based panels (restricted environments)
+Standard `npx playwright install chromium` won't work in these environments due to `/tmp` size limitations and lack of root access. Use the provided setup scripts instead.
 
-If `CHROME_PATH` is not set, Playwright will use its default browser (if installed).
+**Option A — Automatic (recommended):**
+
+Run the all-in-one setup script to download Chrome and install all missing system libraries automatically:
+
+```bash
+node scripts/setup.js [chrome-version]
+# Example:
+node scripts/setup.js 133.0.6943.98
+```
+
+**Option B — Manual step by step:**
+
+1. Download Chrome:
+```bash
+node scripts/setup-chrome.js [chrome-version]
+```
+
+2. Install missing system libraries:
+```bash
+node scripts/setup-libs.js
+```
+
+**After running the setup scripts**, add this at the very top of your app **before any other `require`**:
+
+```js
+process.env.LD_LIBRARY_PATH = '/home/container/libs';
+```
+
+Or set it in your `.env`:
+```properties
+LD_LIBRARY_PATH=/home/container/libs
+CHROME_PATH=/home/container/chrome-linux64/chrome
+```
+
+> **Note:** The setup scripts only need to be run once. On subsequent restarts, Chrome and its libraries will already be in place.
 
 ## Build & Run
 
@@ -76,7 +103,7 @@ spotify:
 ## Notes
 - For deployment on server/CI, make sure Chromium is available:
   - Use `npx playwright install chromium` for most environments.
-  - For Pterodactyl, upload Chromium manually and set `CHROME_PATH` in `.env`.
+  - For Pterodactyl/Pelican/Wings-based panels, use the provided setup scripts.
 - Request logs include IP and user-agent.
 
 ---
