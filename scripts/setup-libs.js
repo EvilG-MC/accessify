@@ -1,17 +1,17 @@
-const { execSync } = require('node:child_process');
-const fs = require('node:fs');
+import { execSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 
 const LIBS_DIR = '/home/container/libs';
 const CHROME_DIR = '/home/container/chrome-linux64';
 const CHROME_PATH = `${CHROME_DIR}/chrome`;
 
-if (!fs.existsSync(CHROME_PATH)) {
+if (!existsSync(CHROME_PATH)) {
   console.error('✗ Chrome binary not found. Run setup-chrome.js first.');
   process.exit(1);
 }
 
 try {
-  fs.mkdirSync(LIBS_DIR, { recursive: true });
+  mkdirSync(LIBS_DIR, { recursive: true });
 
   // Fix Chrome permissions
   try {
@@ -96,7 +96,7 @@ try {
   console.log('\n=== Downloading packages ===');
 
   const tmpDir = `${LIBS_DIR}/tmp_deb`;
-  fs.mkdirSync(tmpDir, { recursive: true });
+  mkdirSync(tmpDir, { recursive: true });
 
   for (const pkg of packages) {
     try {
@@ -104,7 +104,7 @@ try {
 
       execSync(`cd ${tmpDir} && apt-get download ${pkg} 2>/dev/null`, { stdio: 'pipe' });
 
-      const debs = fs.readdirSync(tmpDir).filter(f => f.endsWith('.deb'));
+      const debs = readdirSync(tmpDir).filter(f => f.endsWith('.deb'));
       for (const deb of debs) {
         execSync(
           `cd ${tmpDir} && dpkg-deb -x ${deb} ${tmpDir}/extracted && ` +

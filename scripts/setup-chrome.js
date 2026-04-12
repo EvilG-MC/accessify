@@ -1,5 +1,5 @@
-const { execSync } = require('node:child_process');
-const fs = require('node:fs');
+import { execSync } from 'node:child_process';
+import { existsSync, mkdirSync } from 'node:fs';
 
 const CHROME_DIR = '/home/container/chrome-linux64';
 const CHROME_PATH = `${CHROME_DIR}/chrome`;
@@ -15,14 +15,14 @@ for (const tool of ['curl', 'unzip']) {
   }
 }
 
-if (fs.existsSync(CHROME_PATH)) {
+if (existsSync(CHROME_PATH)) {
   console.log('✓ Chrome binary already exists, skipping download');
   process.exit(0);
 }
 
 console.log(`\n=== Downloading Chrome ${CHROME_VERSION} ===`);
 try {
-  fs.mkdirSync(CHROME_DIR, { recursive: true });
+  mkdirSync(CHROME_DIR, { recursive: true });
   execSync(
     `cd /home/container && ` +
     `curl -LO "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip" && ` +

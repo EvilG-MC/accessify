@@ -1,4 +1,4 @@
-const { execSync } = require('node:child_process');
+import { execSync } from 'node:child_process';
 
 const version = process.argv[2] ?? '133.0.6943.98';
 
