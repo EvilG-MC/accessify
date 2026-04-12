@@ -1,7 +1,14 @@
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const CHROME_DIR = '/home/container/chrome-linux64';
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const projectRoot = resolve(scriptDir, '..');
+const defaultBaseDir = existsSync('/home/container') ? '/home/container' : projectRoot;
+const baseDir = process.env.SETUP_BASE_DIR?.trim() || defaultBaseDir;
+
+const CHROME_DIR = `${baseDir}/chrome-linux64`;
 const CHROME_PATH = `${CHROME_DIR}/chrome`;
 const CHROME_VERSION = process.argv[2] ?? '133.0.6943.98';
 
@@ -24,7 +31,7 @@ console.log(`\n=== Downloading Chrome ${CHROME_VERSION} ===`);
 try {
   mkdirSync(CHROME_DIR, { recursive: true });
   execSync(
-    `cd /home/container && ` +
+    `cd "${baseDir}" && ` +
     `curl -LO "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip" && ` +
     `unzip -q chrome-linux64.zip && ` +
     `rm chrome-linux64.zip`,

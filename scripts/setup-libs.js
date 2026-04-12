@@ -1,8 +1,15 @@
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const LIBS_DIR = '/home/container/libs';
-const CHROME_DIR = '/home/container/chrome-linux64';
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const projectRoot = resolve(scriptDir, '..');
+const defaultBaseDir = existsSync('/home/container') ? '/home/container' : projectRoot;
+const baseDir = process.env.SETUP_BASE_DIR?.trim() || defaultBaseDir;
+
+const LIBS_DIR = `${baseDir}/libs`;
+const CHROME_DIR = `${baseDir}/chrome-linux64`;
 const CHROME_PATH = `${CHROME_DIR}/chrome`;
 
 if (!existsSync(CHROME_PATH)) {
@@ -15,7 +22,7 @@ try {
 
   // Fix Chrome permissions
   try {
-    execSync(`chmod -R 755 ${CHROME_DIR}/`);
+    execSync(`chmod -R 755 "${CHROME_DIR}/"`);
     console.log('✓ Chrome permissions fixed');
   } catch (e) {
     console.error('✗ Error fixing permissions:', e.message);
@@ -26,7 +33,7 @@ try {
   let missingLibs = '';
   try {
     missingLibs = execSync(
-      `LD_LIBRARY_PATH=${LIBS_DIR} ldd ${CHROME_PATH} 2>/dev/null | grep "not found"`,
+      `LD_LIBRARY_PATH="${LIBS_DIR}" ldd "${CHROME_PATH}" 2>/dev/null | grep "not found"`,
       { encoding: 'utf8' }
     ).trim();
   } catch {
@@ -102,14 +109,14 @@ try {
     try {
       process.stdout.write(`Downloading ${pkg}... `);
 
-      execSync(`cd ${tmpDir} && apt-get download ${pkg} 2>/dev/null`, { stdio: 'pipe' });
+      execSync(`cd "${tmpDir}" && apt-get download ${pkg} 2>/dev/null`, { stdio: 'pipe' });
 
       const debs = readdirSync(tmpDir).filter(f => f.endsWith('.deb'));
       for (const deb of debs) {
         execSync(
-          `cd ${tmpDir} && dpkg-deb -x ${deb} ${tmpDir}/extracted && ` +
-          `find ${tmpDir}/extracted -name "*.so*" | xargs -I{} cp -P {} ${LIBS_DIR}/ 2>/dev/null; ` +
-          `rm -rf ${tmpDir}/extracted ${tmpDir}/${deb}`,
+          `cd "${tmpDir}" && dpkg-deb -x "${deb}" "${tmpDir}/extracted" && ` +
+          `find "${tmpDir}/extracted" -name "*.so*" | xargs -I{} cp -P {} "${LIBS_DIR}/" 2>/dev/null; ` +
+          `rm -rf "${tmpDir}/extracted" "${tmpDir}/${deb}"`,
           { stdio: 'pipe' }
         );
       }
@@ -121,13 +128,13 @@ try {
   }
 
   // Cleanup tmp
-  try { execSync(`rm -rf ${tmpDir}`); } catch { }
+  try { execSync(`rm -rf "${tmpDir}"`); } catch { }
 
   // Re-check missing libs
   console.log('\n=== Missing libraries AFTER install ===');
   try {
     const stillMissing = execSync(
-      `LD_LIBRARY_PATH=${LIBS_DIR} ldd ${CHROME_PATH} 2>/dev/null | grep "not found" || echo "✓ None — Chrome should work"`,
+      `LD_LIBRARY_PATH="${LIBS_DIR}" ldd "${CHROME_PATH}" 2>/dev/null | grep "not found" || echo "✓ None — Chrome should work"`,
       { encoding: 'utf8' }
     );
     console.log(stillMissing);
