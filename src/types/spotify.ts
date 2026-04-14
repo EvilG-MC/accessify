@@ -1,9 +1,8 @@
-export interface SpotifyToken {
+export interface SpotifyToken extends Record<string, unknown> {
 	accessToken: string;
 	accessTokenExpirationTimestampMs: number;
 	clientId?: string;
 	isAnonymous?: boolean;
-	[key: string]: unknown;
 }
 
 export interface TokenProxy<T extends SpotifyToken> {
