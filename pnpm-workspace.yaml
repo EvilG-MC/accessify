@@ -1,0 +1,4 @@
+onlyBuilds:
+  - esbuild
+
+packages: []
